@@ -1,0 +1,17 @@
+name: Trigger Sync on Update
+
+on:
+  push:
+    branches:
+      - main  # 仅当 main 分支更新时触发
+
+jobs:
+  notify-mkzi-nya-github-io:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify mkzi-nya.github.io
+        run: |
+          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/vnd.github.v3+json" \
+               https://api.github.com/repos/mkzi-nya/mkzi-nya.github.io/dispatches \
+               -d '{"event_type": "update-2048"}'
