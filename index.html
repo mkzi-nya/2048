@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>2048</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="./style.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overscroll-behavior: none; /* 禁用安卓回弹 */
+      -webkit-touch-callout: none; /* 禁用长按弹出 */
+      -webkit-user-select: none;   /* 禁用文字选中 */
+      user-select: none;
+      touch-action: none;          /* 禁用双击缩放等 */
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>2048</h1>
+
+    <div class="controls">
+      <div class="score-panel">
+        <div class="score-box">
+          <div class="score-title">分数</div>
+          <div id="currentScore">0</div>
+        </div>
+        <div class="score-box">
+          <div class="score-title">最高分数</div>
+          <div id="bestScore">0</div>
+        </div>
+      </div>
+      <div class="buttons-panel">
+        <button id="btnRestart">重新开始</button>
+        <button id="btnDarkMode">暗色模式</button>
+      </div>
+    </div>
+
+    <!-- 让棋盘占满 95% 屏幕 -->
+    <div id="gridContainer" class="grid-container"></div>
+
+    <div class="custom-panel-bottom">
+      <div class="panel-section">
+        <span>棋盘边长：</span>
+        <button id="btnSideMinus">-</button>
+        <span id="spanSide">4</span>
+        <button id="btnSidePlus">+</button>
+      </div>
+      <div class="panel-section">
+        <span>最大随机值：</span>
+        <button id="btnMaxMinus">-</button>
+        <span id="spanMaxTile">4</span>
+        <button id="btnMaxPlus">+</button>
+      </div>
+      <div class="panel-section">
+        <button id="btnApply">开始游戏</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./game.js"></script>
+</body>
+</html>

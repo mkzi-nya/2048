@@ -1,0 +1,278 @@
+.grid-container {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  background-color: #bbada0;
+  border-radius: 10px;
+  width: 95vmin;  /* 使用 vmin 保证适配横屏和竖屏 */
+  height: 95vmin; /* 确保棋盘始终正方形 */
+  padding: 10px;
+  box-sizing: border-box;
+  margin-bottom: 15px;
+}
+
+
+@media (min-width: 1024px) {
+  .grid-container {
+    width: 60vh;  /* 在电脑端缩小棋盘，使其更适配 */
+    height: 60vh;
+  }
+}
+
+
+
+/* 让每个背景格子均分棋盘区域 */
+.grid-cell {
+  background-color: #ccc0b3;
+  border-radius: 3px;
+  width: 100%;
+  padding-bottom: 100%; /* 让每个格子变成正方形 */
+  position: relative;
+}
+
+/* 让棋盘内容始终适应 */
+.container {
+  width: 100%;
+  max-width: 500px;
+  text-align: center;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+/* 让标题不会占太多空间 */
+.container h1 {
+  margin: 10px 0;
+  font-weight: bold;
+}
+
+/* 控制区 */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* 分数面板 */
+.score-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.score-box {
+  background: #bbada0;
+  color: white;
+  padding: 5px 10px;
+  margin-right: 10px;
+  border-radius: 5px;
+  text-align: center;
+}
+
+.score-title {
+  font-size: 14px;
+}
+
+/* 按钮面板 */
+.buttons-panel button {
+  background: #8f7a66;
+  color: #f9f6f2;
+  border: none;
+  border-radius: 3px;
+  padding: 8px 15px;
+  font-size: 14px;
+  margin: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.buttons-panel button:hover {
+  background-color: #776e65;
+}
+
+/* 底部面板 */
+.custom-panel-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.panel-section {
+  display: flex;
+  align-items: center;
+  margin: 5px;
+}
+
+.panel-section span {
+  margin: 0 5px;
+}
+
+.panel-section button {
+  background: #8f7a66;
+  color: #f9f6f2;
+  border: none;
+  border-radius: 3px;
+  padding: 5px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.panel-section button:hover {
+  background-color: #776e65;
+}
+
+/* ============== 方块（tile）的样式 ============== */
+.tile {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  border-radius: 3px;
+  box-sizing: border-box;
+
+  /* 平滑移动动画 */
+  transition: top 0.2s, left 0.2s;
+}
+
+/* 合并动画 */
+.tile-merged {
+  animation: pop 0.2s;
+}
+@keyframes pop {
+  0%   { transform: scale(1);   }
+  50%  { transform: scale(1.1); }
+  100% { transform: scale(1);   }
+}
+
+/* 新生成方块动画 */
+.tile-pop {
+  animation: tilePop 0.1s forwards;
+}
+@keyframes tilePop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 让不同数值的方块显示不同颜色 */
+.tile-2 {
+  background: #eee4da;
+  color: #776e65;
+}
+.tile-4 {
+  background: #ede0c8;
+  color: #776e65;
+}
+.tile-8 {
+  background: #f2b179;
+  color: #f9f6f2;
+}
+.tile-16 {
+  background: #f59563;
+  color: #f9f6f2;
+}
+.tile-32 {
+  background: #f67c5f;
+  color: #f9f6f2;
+}
+.tile-64 {
+  background: #f65e3b;
+  color: #f9f6f2;
+}
+.tile-128 {
+  background: #edcf72;
+  color: #f9f6f2;
+}
+.tile-256 {
+  background: #edcc61;
+  color: #f9f6f2;
+}
+.tile-512 {
+  background: #edc850;
+  color: #f9f6f2;
+}
+.tile-1024 {
+  background: #edc53f;
+  color: #f9f6f2;
+}
+.tile-2048 {
+  background: #edc22e;
+  color: #f9f6f2;
+}
+.tile-4096 {
+  background: #3c3a32;
+  color: #f9f6f2;
+}
+.tile-8192 {
+  background: #605d52;
+  color: #f9f6f2;
+}
+.tile-16384 {
+  background: #7a776c;
+  color: #f9f6f2;
+}
+.tile-32768 {
+  background: #928b81;
+  color: #f9f6f2;
+}
+/* ========= 暗色模式（修復 + 設計暗色主題） ========= */
+body.dark-mode {
+  background-color: #333333;
+  color: #e0e0e0;
+}
+
+
+/* 分數面板 & 按鈕在暗色模式下變暗 */
+body.dark-mode .score-box {
+  background: #444;
+  color: #ffffff;
+}
+
+/* 按鈕變深色 */
+body.dark-mode .buttons-panel button,
+body.dark-mode .panel-section button {
+  background: #555;
+  color: #f0f0f0;
+}
+
+body.dark-mode .buttons-panel button:hover,
+body.dark-mode .panel-section button:hover {
+  background-color: #666;
+}
+
+/* 讓合併動畫在暗色模式下不會過亮 */
+body.dark-mode .tile-merged {
+  animation: dark-pop 0.2s;
+}
+
+@keyframes dark-pop {
+  0%   { transform: scale(1);   opacity: 0.8; }
+  50%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1);   opacity: 0.9; }
+}
+
+/* 讓新生成方塊的動畫在暗色模式下更柔和 */
+body.dark-mode .tile-pop {
+  animation: dark-tilePop 0.1s forwards;
+}
+
+@keyframes dark-tilePop {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
