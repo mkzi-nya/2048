@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>2048</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="./style.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overscroll-behavior: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }
+    /* 提升标题位置 */
+    .title {
+      margin-top: -50px; /* 负 margin 提升标题 */
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #888;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">2048</h1>
+    <p class="subtitle">by mkzi_nya</p>
+    <div class="controls">
+      <div class="score-panel">
+        <div class="score-box">
+          <div class="score-title">分数</div>
+          <div id="currentScore">0</div>
+        </div>
+        <div class="score-box">
+          <div class="score-title">最高分数</div>
+          <div id="bestScore">0</div>
+        </div>
+      </div>
+      <div class="buttons-panel">
+        <button id="btnRestart">重新开始</button>
+        <button id="btnDarkMode">暗色模式</button>
+      </div>
+    </div>
+    <div id="gridContainer" class="grid-container"></div>
+    <div class="custom-panel-bottom">
+      <div class="panel-section">
+        <span>棋盘边长：</span>
+        <button id="btnSideMinus">-</button>
+        <span id="spanSide">4</span>
+        <button id="btnSidePlus">+</button>
+      </div>
+      <div class="panel-section">
+        <span>基数：</span>
+        <button id="btnBaseMinus">-</button>
+        <span id="spanBase">2</span>
+        <button id="btnBasePlus">+</button>
+      </div>
+      <div class="panel-section">
+        <button id="btnApply">开始游戏</button>
+      </div>
+      <div class="panel-section">
+        <button id="btnExport">导出存档</button>
+        <button id="btnImport">导入存档</button>
+        <button id="btnAutoPlay">自动模式</button>
+
+        <input type="file" id="fileInput" style="display:none" accept="application/json">
+      </div>
+    </div>
+  </div>
+  <script src="./game.js"></script>
+</body>
+</html>
