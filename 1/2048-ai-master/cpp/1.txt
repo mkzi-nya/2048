@@ -1,0 +1,489 @@
+---
+./2048-web.cpp
+---
+#include <emscripten.h>
+#include "search.hpp"
+
+Search search(3);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+float EMSCRIPTEN_KEEPALIVE jsWork(row_t row1, row_t row2, row_t row3, row_t row4, int dir) {
+    return search((board_t(row1) << 48) | (board_t(row2) << 32) | (board_t(row3) << 16) | board_t(row4), dir);
+}
+#ifdef __cplusplus
+}
+#endif
+
+int main() {
+    emscripten_run_script("onmessage=e=>postMessage(Module._jsWork(e.data.board[0],e.data.board[1],e.data.board[2],e.data.board[3],e.data.dir))");
+}
+---
+---
+./2048.cpp
+---
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <random>
+#include <chrono>
+#include <cstdlib>
+#include <getopt.h>
+#include "search.hpp"
+
+board_t board;
+Move move;
+
+int gen4tiles = 0;
+
+int bigTiles[5]{0,0,0,0,0};
+
+std::vector<int> resultScore;
+std::vector<int> resultMoves;
+std::vector<float> resultTime;
+std::vector<float> resultSpeed;
+
+board_t AddRandomTile(board_t s) {
+    int empty[16];
+    int numEmpty = 0;
+    board_t tmp = s;
+    for (int i = 0; i < 16; i++) {
+        if (!(tmp & 0xf)) empty[numEmpty++] = 4 * i;
+        tmp >>= 4;
+    }
+    unsigned long long tile = (1ULL << (rand() % 10 == 0));
+    if (tile == 2) ++gen4tiles;
+    return s | (tile << empty[rand() % numEmpty]);
+}
+
+std::string Progress(board_t s) {
+    int WIDTH = 25;
+    int sum = 0;
+    for (board_t tmp = s; tmp; tmp >>=4) sum += (1 << (tmp & 0xf));
+    int max = (1 << MaxRank(s));
+    sum -= max;
+    float progress = std::min(std::max((float)sum / (float)max, 0.0f), 1.0f);
+    int wholeWidth = progress * WIDTH;
+    std::string parts[8] = {" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉"};
+    std::string partChar = parts[int(fmod(progress * WIDTH, 1.0) * 8.0)];
+    if ((WIDTH - wholeWidth - 1) < 0) partChar = "";
+    std::string bar;
+    bar.push_back('[');
+    for (int i = 0; i < wholeWidth; i++) bar += "█";
+    bar += partChar;
+    for (int i = 0; i < WIDTH - wholeWidth - 1; i++) bar.push_back(' ');
+    bar.push_back(']');
+    return bar;
+}
+
+int main(int argc, char* argv[]) {
+    std::ios_base::sync_with_stdio(false);
+    srand(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    int depth = 1, iterations = 1;
+    bool detailed = false;
+    int c;
+    while ((c = getopt(argc, argv, "d:i:p")) != -1) {
+        switch (c)
+        {
+        case 'd':
+            depth = atoi(optarg);
+            break;
+        
+        case 'i':
+            iterations = atoi(optarg);
+            break;
+        case 'p':
+            detailed = true;
+            break;
+        }
+    }
+    Search search(depth);
+    for (int game = 1; game <= iterations; ++game) {
+        std::cout << "Running game " << game << "/" << iterations <<'\n';
+        hash.CLear();
+        gen4tiles = 0;
+        board = AddRandomTile(AddRandomTile(0));
+        int moves = 0;
+        int maxTile = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        for (;;) {
+            int best = rand() % 4;
+            float max = 0;
+            for (int i = 0; i < 4; ++i) {
+                float result = search(board, i);
+                if (result > max) {
+                    max = result;
+                    best = i;
+                }
+            }
+            board_t newBoard = move(board, best);
+            if (newBoard == board) break;
+            else board = AddRandomTile(newBoard);
+            ++moves;
+            int newMax = MaxRank(board);
+            if (newMax > maxTile) {
+                maxTile = newMax;
+                if (maxTile >= 11) ++bigTiles[maxTile - 11];
+                if (!detailed) {
+                    std::cout << "Progress: " << (1 << maxTile) << '\r';
+                    std::cout.flush();
+                }
+            }
+            if (detailed) {
+                std::cout << "Progress:" << std::setw(6) << (1 << maxTile) << ' ' << Progress(board) << ' ' << (1 << (maxTile + 1)) << '\r';
+                std::cout.flush();
+            }
+        }
+        std::cout << '\n';
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
+        int score = 0;
+        while(board) {
+            int rank = board & 0xf;
+            score += (rank - 1) << rank;
+            board >>= 4;
+        }
+        resultScore.push_back(score - 4 * gen4tiles);
+        resultMoves.push_back(moves);
+        resultTime.push_back((float)elapsed / 1000.0);
+        resultSpeed.push_back((float)moves * 1000.0 / (float)elapsed);
+    }
+    std::ofstream fout("result.csv");
+    for (int i = 0; i < 5; ++i) fout << (1 << (i + 11)) << ',';
+    fout << '\n';
+    for (int i = 0; i < 5; ++i) fout << (float)bigTiles[i] * 100.0 / (float)iterations << "%,";
+    fout << "\n,\nGame,Score,Moves,Time,Speed\n";
+    float sumScore = 0, sumMoves = 0, sumTime = 0, sumSpeed = 0;
+    for (int i = 0; i < iterations; ++i) {
+        fout << i + 1 << ',' << resultScore[i] << ',' << resultMoves[i] << ',' << resultTime[i] << ',' << resultSpeed[i] << '\n';
+        sumScore += resultScore[i];
+        sumMoves += resultMoves[i];
+        sumTime += resultTime[i];
+        sumSpeed += resultSpeed[i];
+    }
+    fout << "Average" << ',' << sumScore / iterations << ',' << sumMoves / iterations << ',' << sumTime / iterations << ',' << sumSpeed / iterations;
+}
+
+---
+---
+./board.hpp
+---
+#include <algorithm>
+#include <cmath>
+
+typedef unsigned long long board_t;
+typedef unsigned short row_t;
+
+int MaxRank(board_t s) {
+    int maxrank = 0;
+    for (;s;s>>=4) maxrank = std::max(maxrank, int(s & 0xf));
+    return maxrank;
+}
+
+// int CountDistinct(board_t b) {
+//     int mask = 0;
+//     while (b) {
+//         mask |= 1 << (b & 0xf);
+//         b >>= 4;
+//     }
+//     mask >>= 1;
+//     int count = 0;
+//     while (mask) {
+//         mask &= mask - 1;
+//         count++;
+//     }
+//     return count;
+// }
+
+int CountEmpty(board_t b) {
+    b = ~b;
+    b &= b >> 2;
+    b &= b >> 1;
+    b &= 0x1111111111111111ull;
+    b = (b * 0x1111111111111111ull) >> 60;
+    return b;
+}
+
+board_t Transpose(board_t x) {
+    board_t t;
+    t = (x ^ (x >> 12)) & 0x0000f0f00000f0f0ull;
+    x ^= t ^ (t << 12);
+    t = (x ^ (x >> 24)) & 0x00000000ff00ff00ull;
+    x ^= t ^ (t << 24);
+    return x;
+}
+
+row_t ReverseRow(row_t row) {
+    return (row >> 12) | ((row >> 4) & 0x00F0) | ((row << 4) & 0x0F00) | (row << 12);
+}
+---
+---
+./hash.hpp
+---
+#include <random>
+#include <chrono>
+
+class Hash
+{
+    public:
+    Hash() {
+        std::mt19937 mt(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        std::uniform_int_distribution<int> distribution(0, 0x3fffff);
+        for (int i = 0; i < 256; i++) zMap[i] = distribution(mt);
+    }
+    int Lookup(board_t board, int depth, float* score) {
+        Entry entry = entries[ZHash(board)];
+        if (entry.board == board && entry.depth >= depth) {
+            *score = entry.score;
+            return std::pow(entry.moves, (float)depth / (float)entry.depth);
+        }
+        return 0;
+    }
+    void Update(board_t board, int depth, float score, int moves) {
+        Entry& entry = entries[ZHash(board)];
+        entry.board = board;
+        entry.depth = depth;
+        entry.score = score;
+        entry.moves = moves;
+    }
+    void CLear() {
+        for (int i = 0; i < 0x400000; ++i) entries[i].board = 0;
+    }
+    private:
+    struct Entry {
+        board_t board;
+        float score;
+        int depth;
+        int moves;
+    };
+    Entry entries[0x400000];
+    int zMap[256];
+    int ZHash(board_t x) {
+        int value = 0;
+        for (int i = 0; i < 16; ++i) {
+            value ^= zMap[(i << 4) | (x & 0xf)];
+            x >>= 4;
+        }
+        return value;
+    }
+};
+---
+---
+./heuristic.hpp
+---
+class Heuristic {
+    private:
+    float heurTable[65536];
+    float ScoreHeuristic(board_t board) {
+        return
+            heurTable[(board >> 48) & 0xffff] +
+            heurTable[(board >> 32) & 0xffff] +
+            heurTable[(board >> 16) & 0xffff] +
+            heurTable[board & 0xffff];
+    }
+    public:
+    Heuristic() {
+        const float SCORE_LOST_PENALTY = 200000.0f;
+        const float SCORE_MONOTONICITY_POWER = 4.0f;
+        const float SCORE_MONOTONICITY_WEIGHT = 47.0f;
+        const float SCORE_SUM_POWER = 3.5f;
+        const float SCORE_SUM_WEIGHT = 11.0f;
+        const float SCORE_MERGES_WEIGHT = 700.0f;
+        const float SCORE_EMPTY_WEIGHT = 270.0f;
+        for (unsigned row = 0; row < 65536; ++row) {
+            unsigned line[4] = {
+                (row >>  0) & 0xf,
+                (row >>  4) & 0xf,
+                (row >>  8) & 0xf,
+                (row >> 12) & 0xf
+            };
+            float sum = 0;
+            int empty = 0;
+            int merges = 0;
+
+            int prev = 0;
+            int counter = 0;
+            for (int i = 0; i < 4; ++i) {
+                int rank = line[i];
+                sum += pow(rank, SCORE_SUM_POWER);
+                if (!rank) ++empty;
+                else {
+                    if (prev == rank) ++counter;
+                    else if (counter > 0) {
+                        merges += 1 + counter;
+                        counter = 0;
+                    }
+                    prev = rank;
+                }
+            }
+            if (counter > 0) merges += 1 + counter;
+
+            float monotonicity_left = 0;
+            float monotonicity_right = 0;
+            for (int i = 1; i < 4; ++i) {
+                if (line[i-1] > line[i]) {
+                    monotonicity_left += pow(line[i-1], SCORE_MONOTONICITY_POWER) - pow(line[i], SCORE_MONOTONICITY_POWER);
+                } else {
+                    monotonicity_right += pow(line[i], SCORE_MONOTONICITY_POWER) - pow(line[i-1], SCORE_MONOTONICITY_POWER);
+                }
+            }
+
+            heurTable[row] = SCORE_LOST_PENALTY +
+                SCORE_EMPTY_WEIGHT * empty +
+                SCORE_MERGES_WEIGHT * merges -
+                SCORE_MONOTONICITY_WEIGHT * std::min(monotonicity_left, monotonicity_right) -
+                SCORE_SUM_WEIGHT * sum;
+        }
+    }
+    float operator() (board_t s) {
+        return ScoreHeuristic(s) + ScoreHeuristic(Transpose(s));
+    }
+    static constexpr float LOSE_PENALTY = 0;
+};
+---
+---
+./move.hpp
+---
+class Move {
+    public:
+    Move() {
+        for (unsigned row = 0; row < 65536; ++row) {
+            unsigned line[4] = {
+                (row >>  0) & 0xf,
+                (row >>  4) & 0xf,
+                (row >>  8) & 0xf,
+                (row >> 12) & 0xf
+            };
+            int farthest = 3;
+            bool merged = false;
+            for (int i = 3; i >= 0; --i) {
+                if (!line[i]) continue;
+                if (!merged && farthest < 3 && line[i] == line[farthest + 1]) {
+                    line[farthest + 1] = (line[farthest + 1] + 1) & 0xf;
+                    line[i] = 0;
+                    merged = true;
+                }
+                else if (farthest == i) --farthest;
+                else {
+                    line[farthest--] = line[i];
+                    line[i] = 0;
+                    merged = false;
+                }
+            }
+            moveTable[row] = line[0] | (line[1] << 4) | (line[2] << 8) | (line[3] << 12);
+            revTable[ReverseRow(row)] = ReverseRow(moveTable[row]);
+        }
+    }
+    board_t operator()(board_t s, int dir) {
+        switch (dir) {
+            case 0: return MoveUp(s);
+            case 1: return MoveRight(s);
+            case 2: return MoveDown(s);
+            case 3: return MoveLeft(s);
+            default: return s;
+        }
+    }
+    private:
+    row_t moveTable[65536];
+    row_t revTable[65536];
+    board_t MoveLeft(board_t s) {
+        return (board_t(moveTable[s & 0xffff]) |
+           (board_t(moveTable[(s >> 16) & 0xffff]) << 16) |
+           (board_t(moveTable[(s >> 32) & 0xffff]) << 32) |
+           (board_t(moveTable[(s >> 48) & 0xffff]) << 48));
+    }
+
+    board_t MoveRight(board_t s) {
+        return (board_t(revTable[s & 0xffff]) |
+           (board_t(revTable[(s >> 16) & 0xffff]) << 16) |
+           (board_t(revTable[(s >> 32) & 0xffff]) << 32) |
+           (board_t(revTable[(s >> 48) & 0xffff]) << 48));
+    }
+
+    board_t MoveUp(board_t s) {
+        return Transpose(MoveLeft(Transpose(s)));
+    }
+
+    board_t MoveDown(board_t s) {
+        return Transpose(MoveRight(Transpose(s)));
+    }
+};
+---
+---
+./search.hpp
+---
+#include "board.hpp"
+#include "heuristic.hpp"
+#include "hash.hpp"
+#include "move.hpp"
+
+Hash hash;
+
+class Search {
+    public:
+    Search(int minDepth) {
+        MIN_DEPTH = minDepth;
+    }
+
+    float operator()(board_t s, int moveDir) {
+        board_t newBoard = move(s, moveDir);
+        if (newBoard == s) return 0;
+        stateEvaled = 0;
+        unsigned currentDepth = MIN_DEPTH;
+        //int diff = CountDistinct(s);
+        // if (diff >= 12) currentDepth += (1 << (diff - 12));
+        minProb = 1.0f / float(1 << (2 * currentDepth + 5));
+        float result = ExpectimaxSpawnNode(newBoard, currentDepth, 1.0f);
+        int minState = 1 << (3 * currentDepth + 5);
+        int lastStates = 0;
+        while ((stateEvaled < minState) && (stateEvaled > lastStates)) {
+            ++currentDepth;
+            minProb = 1.0f / float(1 << (2 * currentDepth + 5));
+            minState *= 2;
+            lastStates = stateEvaled;
+            stateEvaled = 0;
+            result = ExpectimaxSpawnNode(newBoard, currentDepth, 1.0f);
+        }
+        return result;
+    }
+    private:
+    Heuristic heuristic;
+    Move move;
+    int stateEvaled = 0;
+    int MIN_DEPTH;
+    float minProb;
+
+    float ExpectimaxSpawnNode(board_t s, int depth, float prob) {
+        if (depth <= 0 || prob < minProb) return heuristic(s);
+        float expect = 0.0;
+        int currentEvaled = stateEvaled;
+        stateEvaled += hash.Lookup(s, depth, &expect);
+        if (stateEvaled > currentEvaled) return expect;
+        expect = 0.0f;
+        float emptyTiles = CountEmpty(s);
+        float prob2 = prob * .9 / emptyTiles;
+        float prob4 = prob * .1 / emptyTiles;
+        board_t tmp = s;
+        for (board_t tile2 = 1; tile2; tile2 <<= 4) {
+            if (!(tmp & 0xf)) {
+                expect += ExpectimaxMoveNode(s | tile2, depth - 1, prob2) * .9;
+                expect += ExpectimaxMoveNode(s | (tile2 << 1), depth - 1, prob4) * .1;
+            }
+            tmp >>= 4;
+        }   
+        hash.Update(s, depth, expect / emptyTiles, stateEvaled - currentEvaled);
+        return expect / emptyTiles;
+    }
+
+    float ExpectimaxMoveNode(board_t s, int depth, float prob) {
+        ++stateEvaled;
+        float max = Heuristic::LOSE_PENALTY;
+        for (int i = 0; i < 4; ++i) {
+            board_t newBoard = move(s, i);
+            if (newBoard != s) max = std::max(max, ExpectimaxSpawnNode(newBoard, depth, prob));
+        }
+        return max;
+    }
+};
+
+---

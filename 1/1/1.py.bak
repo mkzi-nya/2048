@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import json
+import math
+import heapq
+from dataclasses import dataclass, field
+from typing import List, Tuple, Optional
+
+# ========== 可调参数 ==========
+BEAM_WIDTH = 200          # 束宽（越大越强，越慢）
+MAX_GENERATIONS = 20000   # 最大展开世代数（防爆跑）
+HEUR_EMPTY = 500          # 启发式：每个空格的权重
+CORNER_BONUS = 5000       # 启发式：最大值在左下角的奖励
+OUT_PATH = "./1.txt"
+SAVE_PATH = "./1.json"
+
+# ========== 工具：JS Mulberry32 复刻 ==========
+def _imul(a: int, b: int) -> int:
+    return ((a & 0xFFFFFFFF) * (b & 0xFFFFFFFF)) & 0xFFFFFFFF
+
+def mulberry32(seed_init: int):
+    # 完整复刻 JS 版本的逐次调用序列
+    s = seed_init & 0xFFFFFFFF
+    def rnd() -> float:
+        nonlocal s
+        s = (s + 0x6D2B79F5) & 0xFFFFFFFF             # seed = seed + const | 0
+        t = _imul(s ^ (s >> 15), 1 | s)               # Math.imul(seed ^ seed>>>15, 1|seed)
+        # t = t + Math.imul(t ^ t>>>7, 61|t) ^ t
+        t2 = (t + _imul(t ^ (t >> 7), 61 | t)) & 0xFFFFFFFF
+        t = (t2 ^ t) & 0xFFFFFFFF
+        # return ((t ^ t>>>14) >>> 0) / 2^32
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
+    return rnd
+
+def generate_tile_info(seed: int, step: int, side: int) -> Tuple[int, int]:
+    """
+    返回 (emptySlotIndex, value)
+    emptySlotIndex 仍需对当前空位数取模以定位具体格子。
+    """
+    total_cells = side * side
+    rnd = mulberry32((seed + step * 12345) & 0xFFFFFFFF)
+    empty_slot_index = int(math.floor(rnd() * total_cells))
+    value = 2 if rnd() < 0.8 else 4
+    return empty_slot_index, value
+
+# ========== 棋盘/移动 ==========
+# 按用户要求：0/1/2/3 = 上/下/左/右
+DIRS = [0, 1, 2, 3]
+UP, DOWN, LEFT, RIGHT = 0, 1, 2, 3
+
+@dataclass(order=True)
+class Node:
+    # 用于堆排序的键（负号表示想取“越大越好”）
+    priority: float
+    # 以下不参与比较
+    score: int = field(compare=False)          # 从当前存档继续后的累计新增分（不含存档中已有分）
+    step: int = field(compare=False)           # 已经落子的步数（延续存档的 step）
+    grid: Tuple[int, ...] = field(compare=False)  # 扁平化棋盘（行优先）
+    path: str = field(compare=False, default="")   # 0/1/2/3 序列
+    dead: bool = field(compare=False, default=False)
+
+def read_save(path: str):
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    game = data["currentGame"]
+    side = int(game["side"])
+    base = int(game["base"])
+    seed = int(game["seed"])
+    step = int(game.get("step", len(game["tiles"])))
+    current_score = int(game["currentScore"])
+    # 构建棋盘（行优先，0 表示空）
+    grid = [[0 for _ in range(side)] for _ in range(side)]
+    for t in game["tiles"]:
+        r, c, v = int(t["row"]), int(t["col"]), int(t["value"])
+        grid[r][c] = v
+    flat = tuple(v for row in grid for v in row)
+    return side, base, seed, step, current_score, flat
+
+def grid_to_matrix(flat: Tuple[int, ...], side: int) -> List[List[int]]:
+    return [list(flat[i*side:(i+1)*side]) for i in range(side)]
+
+def matrix_to_flat(mat: List[List[int]]) -> Tuple[int, ...]:
+    return tuple(v for row in mat for v in row)
+
+def is_power_of_two(x: int) -> bool:
+    return x > 0 and (x & (x - 1)) == 0
+
+def merge_value(v: int, base: int) -> int:
+    # 复刻 JS 行为：两个相同值合并，产出值为：
+    # - 2+2 -> base*2
+    # - 4+4 -> base*4
+    # - 其余若已是 base*2^k 形态 -> 翻倍
+    # - 意外情况也按翻倍兜底（与 JS 连续 n+1 -> base*2^(n-1) 等价）
+    if v == 2:
+        return base * 2
+    if v == 4:
+        return base * 4
+    if v % base == 0 and is_power_of_two(v // base):
+        return v * 2
+    return v * 2
+
+def compress_line(line: List[int], side: int, base: int) -> Tuple[List[int], int, bool]:
+    # 去 0
+    nz = [x for x in line if x != 0]
+    out = []
+    add_score = 0
+    i = 0
+    while i < len(nz):
+        if i + 1 < len(nz) and nz[i] == nz[i + 1]:
+            m = merge_value(nz[i], base)
+            out.append(m)
+            add_score += m
+            i += 2
+        else:
+            out.append(nz[i])
+            i += 1
+    # 填 0
+    out += [0] * (side - len(out))
+    moved = out != line
+    return out, add_score, moved
+
+def apply_move(flat: Tuple[int, ...], side: int, base: int, direction: int) -> Tuple[Tuple[int, ...], int, bool]:
+    mat = grid_to_matrix(flat, side)
+    total_gain = 0
+    moved_any = False
+
+    if direction == LEFT:
+        for r in range(side):
+            new_line, gain, moved = compress_line(mat[r], side, base)
+            mat[r] = new_line
+            total_gain += gain
+            moved_any = moved_any or moved
+
+    elif direction == RIGHT:
+        for r in range(side):
+            line = list(reversed(mat[r]))
+            new_line, gain, moved = compress_line(line, side, base)
+            mat[r] = list(reversed(new_line))
+            total_gain += gain
+            moved_any = moved_any or moved
+
+    elif direction == UP:
+        for c in range(side):
+            line = [mat[r][c] for r in range(side)]
+            new_line, gain, moved = compress_line(line, side, base)
+            for r in range(side):
+                mat[r][c] = new_line[r]
+            total_gain += gain
+            moved_any = moved_any or moved
+
+    elif direction == DOWN:
+        for c in range(side):
+            line = [mat[r][c] for r in reversed(range(side))]
+            new_line, gain, moved = compress_line(line, side, base)
+            for idx, r in enumerate(reversed(range(side))):
+                mat[r][c] = new_line[idx]
+            total_gain += gain
+            moved_any = moved_any or moved
+
+    return matrix_to_flat(mat), total_gain, moved_any
+
+def spawn(flat: Tuple[int, ...], side: int, seed: int, step: int) -> Tuple[Tuple[int, ...], int]:
+    """根据 JS 规则确定性生成新块并返回（新棋盘, 新的 step）。"""
+    mat = grid_to_matrix(flat, side)
+    empties = [(r, c) for r in range(side) for c in range(side) if mat[r][c] == 0]
+    if not empties:
+        return flat, step  # 满盘，按 JS 也不会生成
+    empty_idx, value = generate_tile_info(seed, step, side)
+    pos = empties[empty_idx % len(empties)]
+    r, c = pos
+    mat[r][c] = value
+    return matrix_to_flat(mat), step + 1
+
+def can_move(flat: Tuple[int, ...], side: int, base: int) -> bool:
+    for d in DIRS:
+        _, _, moved = apply_move(flat, side, base, d)
+        if moved:
+            return True
+    return False
+
+# ========== 启发式评估 ==========
+def evaluate(flat: Tuple[int, ...], side: int) -> float:
+    mat = grid_to_matrix(flat, side)
+    # 越靠左下权重越大
+    w_sum = 0
+    maxv = 0
+    for r in range(side):
+        for c in range(side):
+            v = mat[r][c]
+            if v:
+                weight = (side - r) * 10 + (side - c)
+                w_sum += v * weight
+                if v > maxv:
+                    maxv = v
+    empties = sum(1 for v in flat if v == 0)
+    bonus = 0
+    if mat[side-1][0] == maxv and maxv > 0:
+        bonus += CORNER_BONUS
+    return w_sum + HEUR_EMPTY * empties + bonus
+
+# ========== 搜索 ==========
+def solve(side: int, base: int, seed: int, step0: int, start_flat: Tuple[int, ...]) -> Tuple[List[Node], Node]:
+    """返回（前 3 名死亡解，最佳解节点 best_dead）"""
+    # 初始节点
+    start_eval = evaluate(start_flat, side)
+    frontier: List[Node] = []
+    heapq.heappush(frontier, Node(priority=-(start_eval), score=0, step=step0, grid=start_flat, path="", dead=not can_move(start_flat, side, base)))
+    visited = {}  # (flat_tuple, step) -> best_score
+    finals: List[Node] = []
+
+    generations = 0
+    while frontier and generations < MAX_GENERATIONS:
+        generations += 1
+        next_frontier: List[Node] = []
+        # 将当前层全部取出再扩展（避免同层内被新节点立即挤掉）
+        curr_layer = []
+        while frontier:
+            curr_layer.append(heapq.heappop(frontier))
+        for node in curr_layer:
+            if node.dead:
+                finals.append(node)
+                continue
+
+            produced_child = False
+            # 按常见强力顺序扩展（下、左、右、上），但编码仍输出 0/1/2/3=上/下/左/右
+            for d in [DOWN, LEFT, RIGHT, UP]:
+                new_flat, gain, moved = apply_move(node.grid, side, base, d)
+                if not moved:
+                    continue
+                # 落子（确定性）
+                spawned_flat, new_step = spawn(new_flat, side, seed, node.step)
+                produced_child = True
+                new_score = node.score + gain
+                new_path = node.path + str(d)
+                key = (spawned_flat, new_step)
+                if key in visited and visited[key] >= new_score:
+                    continue
+                visited[key] = new_score
+                dead = not can_move(spawned_flat, side, base)
+                prio = -(evaluate(spawned_flat, side) + new_score * 0.1)  # 少量把真实分带进评估
+                heapq.heappush(next_frontier, Node(priority=prio, score=new_score, step=new_step, grid=spawned_flat, path=new_path, dead=dead))
+
+            if not produced_child:
+                # 这个节点已经没有可走的方向 -> 死亡
+                finals.append(Node(priority=node.priority, score=node.score, step=node.step, grid=node.grid, path=node.path, dead=True))
+
+        # 保留前 BEAM_WIDTH 个
+        if next_frontier:
+            frontier = heapq.nsmallest(BEAM_WIDTH, next_frontier)
+        else:
+            frontier = []
+
+        # 若已经积累了很多最终解且前沿也空了，可以结束
+        if not frontier:
+            break
+
+    # 若没有任何死亡解（极少见），就把前沿最优当作“最终”
+    if not finals and frontier:
+        finals = [heapq.heappop(frontier)]
+
+    # 取分数前三
+    finals.sort(key=lambda n: n.score, reverse=True)
+    top3 = finals[:3]
+    best = top3[0]
+    return top3, best
+
+# ========== 打印/写出 ==========
+def board_str(flat: Tuple[int, ...], side: int) -> str:
+    mat = grid_to_matrix(flat, side)
+    width = max(4, max((len(str(v)) for v in flat if v != 0), default=1))
+    lines = []
+    for r in range(side):
+        lines.append(" ".join(f"{mat[r][c]:>{width}d}" if mat[r][c] != 0 else " " * width for c in range(side)))
+    return "\n".join(lines)
+
+def main():
+    side, base, seed, step0, start_score, start_flat = read_save(SAVE_PATH)
+    top3, best = solve(side, base, seed, step0, start_flat)
+
+    # 写 1.txt：每行一个解（0/1/2/3 = 上/下/左/右）
+    with open(OUT_PATH, "w", encoding="utf-8") as f:
+        for n in top3:
+            f.write(n.path + "\n")
+
+    # 打印最好解的终局棋盘与得分
+    print(f"参数：side={side}, base={base}, seed={seed}, 起始步数={step0}")
+    print(f"最优总分（含存档已有分）：{start_score + best.score}  | 新增分：{best.score}  | 步数：{len(best.path)}")
+    print("最终死亡棋盘：")
+    print(board_str(best.grid, side))
+    print(f"已写出前三最优解到 {OUT_PATH}")
+    if len(top3) > 1:
+        print("次优解长度与新增分：", [(len(n.path), n.score) for n in top3[1:]])
+
+if __name__ == "__main__":
+    main()
